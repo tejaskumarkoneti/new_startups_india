@@ -189,10 +189,24 @@ app.get('/api/companies/:cin', async (req, res) => {
   }
 });
 
+// Admin Passcode Security (Configurable via environment variable ADMIN_SECRET)
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'admin123';
+
+function requireAdmin(req, res, next) {
+  const providedKey = req.headers['x-admin-key'] || req.body?.adminKey || req.query?.adminKey;
+  if (!providedKey || providedKey !== ADMIN_SECRET) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Invalid or missing Admin Passcode'
+    });
+  }
+  next();
+}
+
 // ----------------------------------------------------
-// 4. PATCH /api/companies/:cin - Update record
+// 4. PATCH /api/companies/:cin - Update record (Admin only)
 // ----------------------------------------------------
-app.patch('/api/companies/:cin', async (req, res) => {
+app.patch('/api/companies/:cin', requireAdmin, async (req, res) => {
   try {
     const cin = req.params.cin;
     const { status, website_url, guessed_domain, notes_evidence } = req.body;
@@ -227,9 +241,9 @@ app.patch('/api/companies/:cin', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// 5. POST /api/import - Re-sync from local Excel file
+// 5. POST /api/import - Re-sync from local Excel file (Admin only)
 // ----------------------------------------------------
-app.post('/api/import', async (req, res) => {
+app.post('/api/import', requireAdmin, async (req, res) => {
   try {
     const result = await importData();
     res.json({
@@ -243,9 +257,9 @@ app.post('/api/import', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// 6. POST /api/upload-excel - Ingest new monthly Excel
+// 6. POST /api/upload-excel - Ingest new monthly Excel (Admin only)
 // ----------------------------------------------------
-app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
+app.post('/api/upload-excel', requireAdmin, upload.single('excelFile'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No Excel file provided' });
