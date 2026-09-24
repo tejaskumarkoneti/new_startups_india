@@ -190,7 +190,7 @@ app.get('/api/companies/:cin', async (req, res) => {
 });
 
 // Admin Passcode Security (Configurable via environment variable ADMIN_SECRET)
-const ADMIN_SECRET = (process.env.ADMIN_SECRET || 'admin123').trim();
+const ADMIN_SECRET = (process.env.ADMIN_SECRET || '9253').trim();
 
 function requireAdmin(req, res, next) {
   const providedKey = (
