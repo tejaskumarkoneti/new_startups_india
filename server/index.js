@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
-const { db, initDatabase } = require('./db');
+const { isPostgres, initDatabase, queryAll, queryGet, execute } = require('./db');
 const { importData } = require('./import-data');
 
 const app = express();
@@ -16,24 +16,30 @@ const upload = multer({
 app.use(cors());
 app.use(express.json());
 
-// Initialize database schema
-initDatabase();
-
-// Auto-seed if database is empty
-const countRow = db.prepare('SELECT COUNT(*) as total FROM companies').get();
-if (countRow.total === 0) {
-  console.log('Database empty. Running initial import...');
+// Boot bootstrap: initialize schema and auto-seed if database is empty
+async function bootstrap() {
   try {
-    importData();
-  } catch (e) {
-    console.error('Initial import failed:', e);
+    await initDatabase();
+    const countRow = await queryGet('SELECT COUNT(*) as total FROM companies');
+    const total = countRow ? parseInt(countRow.total || 0) : 0;
+    
+    if (total === 0) {
+      console.log('Database empty. Running initial import from Excel...');
+      await importData();
+    } else {
+      console.log(`📊 Database loaded with ${total} companies (${isPostgres ? 'PostgreSQL' : 'SQLite'}).`);
+    }
+  } catch (err) {
+    console.error('Error during database bootstrap:', err);
   }
 }
+
+bootstrap();
 
 // ----------------------------------------------------
 // 1. GET /api/companies - Paginated, filtered, sorted
 // ----------------------------------------------------
-app.get('/api/companies', (req, res) => {
+app.get('/api/companies', async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(5, parseInt(req.query.limit) || 20));
@@ -75,7 +81,8 @@ app.get('/api/companies', (req, res) => {
 
     // Count total matching records
     const countSql = `SELECT COUNT(*) as total FROM companies ${whereClause}`;
-    const totalRecords = db.prepare(countSql).get(...params).total;
+    const countResult = await queryGet(countSql, params);
+    const totalRecords = countResult ? parseInt(countResult.total) : 0;
     const totalPages = Math.ceil(totalRecords / limit) || 1;
 
     // Fetch paginated data
@@ -96,7 +103,7 @@ app.get('/api/companies', (req, res) => {
       LIMIT ? OFFSET ?
     `;
 
-    const records = db.prepare(dataSql).all(...params, limit, offset);
+    const records = await queryAll(dataSql, [...params, limit, offset]);
 
     res.json({
       success: true,
@@ -117,20 +124,23 @@ app.get('/api/companies', (req, res) => {
 // ----------------------------------------------------
 // 2. GET /api/metrics - Status breakdown and statistics
 // ----------------------------------------------------
-app.get('/api/metrics', (req, res) => {
+app.get('/api/metrics', async (req, res) => {
   try {
-    const totalRow = db.prepare('SELECT COUNT(*) as total FROM companies').get();
-    const statusRows = db.prepare(`
+    const totalRow = await queryGet('SELECT COUNT(*) as total FROM companies');
+    const total = totalRow ? parseInt(totalRow.total) : 0;
+
+    const statusRows = await queryAll(`
       SELECT status, COUNT(*) as count 
       FROM companies 
       GROUP BY status
-    `).all();
+    `);
 
-    const withWebsiteRow = db.prepare(`
+    const withWebsiteRow = await queryGet(`
       SELECT COUNT(*) as count 
       FROM companies 
       WHERE website_url IS NOT NULL AND TRIM(website_url) != ''
-    `).get();
+    `);
+    const withWebsite = withWebsiteRow ? parseInt(withWebsiteRow.count) : 0;
 
     const statusCounts = {
       CONFIRMED: 0,
@@ -141,19 +151,20 @@ app.get('/api/metrics', (req, res) => {
     };
 
     statusRows.forEach(r => {
-      if (statusCounts[r.status] !== undefined) {
-        statusCounts[r.status] = r.count;
+      const st = r.status.toUpperCase();
+      if (statusCounts[st] !== undefined) {
+        statusCounts[st] = parseInt(r.count);
       }
     });
 
     res.json({
       success: true,
       metrics: {
-        total: totalRow.total,
+        total,
         statusCounts,
-        withWebsite: withWebsiteRow.count,
+        withWebsite,
         verifiedCount: (statusCounts.CONFIRMED + statusCounts.LIKELY),
-        completionRate: totalRow.total > 0 ? ((statusCounts.CONFIRMED + statusCounts.LIKELY + statusCounts.NOT_FOUND) / totalRow.total * 100).toFixed(1) : 0
+        completionRate: total > 0 ? ((statusCounts.CONFIRMED + statusCounts.LIKELY + statusCounts.NOT_FOUND) / total * 100).toFixed(1) : 0
       }
     });
   } catch (err) {
@@ -165,10 +176,10 @@ app.get('/api/metrics', (req, res) => {
 // ----------------------------------------------------
 // 3. GET /api/companies/:cin - Get single company record
 // ----------------------------------------------------
-app.get('/api/companies/:cin', (req, res) => {
+app.get('/api/companies/:cin', async (req, res) => {
   try {
     const cin = req.params.cin;
-    const record = db.prepare('SELECT * FROM companies WHERE cin = ?').get(cin);
+    const record = await queryGet('SELECT * FROM companies WHERE cin = ?', [cin]);
     if (!record) {
       return res.status(404).json({ success: false, error: 'Company not found' });
     }
@@ -181,12 +192,12 @@ app.get('/api/companies/:cin', (req, res) => {
 // ----------------------------------------------------
 // 4. PATCH /api/companies/:cin - Update record
 // ----------------------------------------------------
-app.patch('/api/companies/:cin', (req, res) => {
+app.patch('/api/companies/:cin', async (req, res) => {
   try {
     const cin = req.params.cin;
     const { status, website_url, guessed_domain, notes_evidence } = req.body;
 
-    const existing = db.prepare('SELECT * FROM companies WHERE cin = ?').get(cin);
+    const existing = await queryGet('SELECT * FROM companies WHERE cin = ?', [cin]);
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Company not found' });
     }
@@ -196,7 +207,7 @@ app.patch('/api/companies/:cin', (req, res) => {
     const updatedDomain = guessed_domain !== undefined ? guessed_domain : existing.guessed_domain;
     const updatedNotes = notes_evidence !== undefined ? notes_evidence : existing.notes_evidence;
 
-    db.prepare(`
+    await execute(`
       UPDATE companies 
       SET 
         status = ?,
@@ -205,9 +216,9 @@ app.patch('/api/companies/:cin', (req, res) => {
         notes_evidence = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE cin = ?
-    `).run(updatedStatus, updatedUrl, updatedDomain, updatedNotes, cin);
+    `, [updatedStatus, updatedUrl, updatedDomain, updatedNotes, cin]);
 
-    const updatedRecord = db.prepare('SELECT * FROM companies WHERE cin = ?').get(cin);
+    const updatedRecord = await queryGet('SELECT * FROM companies WHERE cin = ?', [cin]);
     res.json({ success: true, message: 'Updated successfully', data: updatedRecord });
   } catch (err) {
     console.error('Error updating company:', err);
@@ -218,9 +229,9 @@ app.patch('/api/companies/:cin', (req, res) => {
 // ----------------------------------------------------
 // 5. POST /api/import - Re-sync from local Excel file
 // ----------------------------------------------------
-app.post('/api/import', (req, res) => {
+app.post('/api/import', async (req, res) => {
   try {
-    const result = importData();
+    const result = await importData();
     res.json({
       success: true,
       message: `Processed ${result.total} records (${result.newRecords} new, ${result.updatedRecords} updated)`,
@@ -234,13 +245,13 @@ app.post('/api/import', (req, res) => {
 // ----------------------------------------------------
 // 6. POST /api/upload-excel - Ingest new monthly Excel
 // ----------------------------------------------------
-app.post('/api/upload-excel', upload.single('excelFile'), (req, res) => {
+app.post('/api/upload-excel', upload.single('excelFile'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'No Excel file provided' });
     }
     console.log(`📥 Received monthly upload: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)} KB)`);
-    const result = importData(req.file.buffer);
+    const result = await importData(req.file.buffer);
     res.json({
       success: true,
       message: `Successfully processed ${result.total} records (${result.newRecords} new, ${result.updatedRecords} updated)`,
