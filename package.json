@@ -1,0 +1,10 @@
+{
+  "name": "new-startups-india",
+  "version": "1.0.0",
+  "description": "Indian Corporate Registry Dashboard",
+  "scripts": {
+    "postinstall": "cd server && npm install",
+    "build": "cd server && npm install",
+    "start": "cd server && node index.js"
+  }
+}

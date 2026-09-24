@@ -233,6 +233,6 @@ app.use((req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Company Database & API Server running at http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Company Database & API Server running on port ${PORT}`);
 });

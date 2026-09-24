@@ -1,21 +1,19 @@
-# Production Dockerfile
-FROM node:22-alpine
+FROM node:22-bookworm-slim
 
 WORKDIR /app
 
-# Copy dependency definitions
-COPY server/package*.json ./
+# Copy dependency definition
+COPY server/package.json ./
 
 # Install production dependencies
-RUN npm ci --only=production
+RUN npm install --omit=dev
 
-# Copy application files and dataset
+# Copy all server code, public dashboard files, and dataset
 COPY server/ ./
 COPY IT_Activity_Code_62_Companies_with_Websites.xlsx ./
 
-# Expose port (default 5000, can be overridden by environment variable)
-ENV PORT=5000
-EXPOSE 5000
+ENV NODE_ENV=production
+ENV PORT=10000
+EXPOSE 10000
 
-# Start server (auto-seeds database on first boot if not present)
-CMD ["npm", "start"]
+CMD ["node", "index.js"]
