@@ -57,8 +57,11 @@
         </div>
       </div>
       
-      <!-- Top Right Controls (Dark Mode Toggle + Re-sync Excel) -->
+      <!-- Top Right Controls (Dark Mode Toggle + Monthly Upload + Re-sync Excel) -->
       <div class="flex items-center gap-2.5">
+        <!-- Hidden file input for monthly upload -->
+        <input type="file" id="monthlyFileInput" accept=".xlsx,.xls" class="hidden" />
+
         <!-- Dark Mode Toggle Button -->
         <button 
           id="themeToggleBtn" 
@@ -70,13 +73,24 @@
           <span id="themeLabel">Dark Mode</span>
         </button>
 
+        <!-- Upload New Month Excel Button -->
+        <button 
+          id="uploadMonthBtn" 
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-2xs cursor-pointer"
+          title="Upload September or new monthly Excel sheet"
+        >
+          <i data-lucide="file-up" class="w-3.5 h-3.5"></i>
+          <span>Upload Monthly Excel</span>
+        </button>
+
         <!-- Re-sync Excel Button -->
         <button 
           id="resyncBtn" 
           class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors border border-transparent dark:border-slate-700"
         >
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-          Re-sync Excel
+          Re-sync Local
         </button>
       </div>
     </div>
@@ -645,6 +659,47 @@
       loadCompanies();
     });
 
+    // Monthly Excel Upload Handler
+    document.getElementById('uploadMonthBtn').addEventListener('click', () => {
+      document.getElementById('monthlyFileInput').click();
+    });
+
+    document.getElementById('monthlyFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const btn = document.getElementById('uploadMonthBtn');
+      const originalHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin"></i> Ingesting...`;
+      lucide.createIcons();
+
+      const formData = new FormData();
+      formData.append('excelFile', file);
+
+      try {
+        const res = await fetch('/api/upload-excel', {
+          method: 'POST',
+          body: formData
+        });
+        const json = await res.json();
+        if (json.success) {
+          showToast(`🎉 ${json.message}`);
+          loadMetrics();
+          loadCompanies();
+        } else {
+          alert('Upload error: ' + json.error);
+        }
+      } catch (err) {
+        alert('Failed to upload and process Excel file.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        document.getElementById('monthlyFileInput').value = '';
+        lucide.createIcons();
+      }
+    });
+
     document.getElementById('resyncBtn').addEventListener('click', async () => {
       const btn = document.getElementById('resyncBtn');
       btn.disabled = true;
@@ -655,7 +710,7 @@
         const res = await fetch('/api/import', { method: 'POST' });
         const json = await res.json();
         if (json.success) {
-          showToast(`Ingested ${json.count} companies from Excel!`);
+          showToast(`🎉 ${json.message}`);
           loadMetrics();
           loadCompanies();
         } else {
@@ -665,7 +720,7 @@
         alert('Failed to trigger sync');
       } finally {
         btn.disabled = false;
-        btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Re-sync Excel`;
+        btn.innerHTML = `<i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Re-sync Local`;
         lucide.createIcons();
       }
     });

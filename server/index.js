@@ -1,11 +1,17 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const multer = require('multer');
 const { db, initDatabase } = require('./db');
 const { importData } = require('./import-data');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 } // 30 MB max
+});
 
 app.use(cors());
 app.use(express.json());
@@ -210,13 +216,38 @@ app.patch('/api/companies/:cin', (req, res) => {
 });
 
 // ----------------------------------------------------
-// 5. POST /api/import - Re-sync from Excel file
+// 5. POST /api/import - Re-sync from local Excel file
 // ----------------------------------------------------
 app.post('/api/import', (req, res) => {
   try {
     const result = importData();
-    res.json({ success: true, message: `Seeded ${result.count} records`, count: result.count });
+    res.json({
+      success: true,
+      message: `Processed ${result.total} records (${result.newRecords} new, ${result.updatedRecords} updated)`,
+      ...result
+    });
   } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 6. POST /api/upload-excel - Ingest new monthly Excel
+// ----------------------------------------------------
+app.post('/api/upload-excel', upload.single('excelFile'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No Excel file provided' });
+    }
+    console.log(`📥 Received monthly upload: ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)} KB)`);
+    const result = importData(req.file.buffer);
+    res.json({
+      success: true,
+      message: `Successfully processed ${result.total} records (${result.newRecords} new, ${result.updatedRecords} updated)`,
+      ...result
+    });
+  } catch (err) {
+    console.error('Upload processing error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
