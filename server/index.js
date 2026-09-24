@@ -1,0 +1,238 @@
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const { db, initDatabase } = require('./db');
+const { importData } = require('./import-data');
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+app.use(cors());
+app.use(express.json());
+
+// Initialize database schema
+initDatabase();
+
+// Auto-seed if database is empty
+const countRow = db.prepare('SELECT COUNT(*) as total FROM companies').get();
+if (countRow.total === 0) {
+  console.log('Database empty. Running initial import...');
+  try {
+    importData();
+  } catch (e) {
+    console.error('Initial import failed:', e);
+  }
+}
+
+// ----------------------------------------------------
+// 1. GET /api/companies - Paginated, filtered, sorted
+// ----------------------------------------------------
+app.get('/api/companies', (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(5, parseInt(req.query.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    const search = (req.query.search || '').trim();
+    const statusFilter = (req.query.status || '').trim();
+    const hasWebsite = (req.query.hasWebsite || '').trim();
+    const sortBy = ['company_name', 'cin', 'date_of_registration', 'status', 'checked_on'].includes(req.query.sortBy)
+      ? req.query.sortBy
+      : 'company_name';
+    const order = (req.query.order || 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+
+    const conditions = [];
+    const params = [];
+
+    if (search) {
+      conditions.push('(cin LIKE ? OR company_name LIKE ? OR notes_evidence LIKE ?)');
+      const term = `%${search}%`;
+      params.push(term, term, term);
+    }
+
+    if (statusFilter && statusFilter !== 'ALL') {
+      const statuses = statusFilter.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+      if (statuses.length > 0) {
+        const placeholders = statuses.map(() => '?').join(',');
+        conditions.push(`status IN (${placeholders})`);
+        params.push(...statuses);
+      }
+    }
+
+    if (hasWebsite === 'true') {
+      conditions.push("(website_url IS NOT NULL AND TRIM(website_url) != '')");
+    } else if (hasWebsite === 'false') {
+      conditions.push("(website_url IS NULL OR TRIM(website_url) = '')");
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Count total matching records
+    const countSql = `SELECT COUNT(*) as total FROM companies ${whereClause}`;
+    const totalRecords = db.prepare(countSql).get(...params).total;
+    const totalPages = Math.ceil(totalRecords / limit) || 1;
+
+    // Fetch paginated data
+    const dataSql = `
+      SELECT 
+        cin,
+        company_name,
+        date_of_registration,
+        website_url,
+        guessed_domain,
+        status,
+        notes_evidence,
+        checked_on,
+        updated_at
+      FROM companies
+      ${whereClause}
+      ORDER BY ${sortBy} ${order}
+      LIMIT ? OFFSET ?
+    `;
+
+    const records = db.prepare(dataSql).all(...params, limit, offset);
+
+    res.json({
+      success: true,
+      data: records,
+      pagination: {
+        page,
+        limit,
+        totalRecords,
+        totalPages
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching companies:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 2. GET /api/metrics - Status breakdown and statistics
+// ----------------------------------------------------
+app.get('/api/metrics', (req, res) => {
+  try {
+    const totalRow = db.prepare('SELECT COUNT(*) as total FROM companies').get();
+    const statusRows = db.prepare(`
+      SELECT status, COUNT(*) as count 
+      FROM companies 
+      GROUP BY status
+    `).all();
+
+    const withWebsiteRow = db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM companies 
+      WHERE website_url IS NOT NULL AND TRIM(website_url) != ''
+    `).get();
+
+    const statusCounts = {
+      CONFIRMED: 0,
+      LIKELY: 0,
+      UNCERTAIN: 0,
+      NEEDS_MANUAL_CHECK: 0,
+      NOT_FOUND: 0
+    };
+
+    statusRows.forEach(r => {
+      if (statusCounts[r.status] !== undefined) {
+        statusCounts[r.status] = r.count;
+      }
+    });
+
+    res.json({
+      success: true,
+      metrics: {
+        total: totalRow.total,
+        statusCounts,
+        withWebsite: withWebsiteRow.count,
+        verifiedCount: (statusCounts.CONFIRMED + statusCounts.LIKELY),
+        completionRate: totalRow.total > 0 ? ((statusCounts.CONFIRMED + statusCounts.LIKELY + statusCounts.NOT_FOUND) / totalRow.total * 100).toFixed(1) : 0
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching metrics:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 3. GET /api/companies/:cin - Get single company record
+// ----------------------------------------------------
+app.get('/api/companies/:cin', (req, res) => {
+  try {
+    const cin = req.params.cin;
+    const record = db.prepare('SELECT * FROM companies WHERE cin = ?').get(cin);
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'Company not found' });
+    }
+    res.json({ success: true, data: record });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 4. PATCH /api/companies/:cin - Update record
+// ----------------------------------------------------
+app.patch('/api/companies/:cin', (req, res) => {
+  try {
+    const cin = req.params.cin;
+    const { status, website_url, guessed_domain, notes_evidence } = req.body;
+
+    const existing = db.prepare('SELECT * FROM companies WHERE cin = ?').get(cin);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Company not found' });
+    }
+
+    const updatedStatus = status ? status.toUpperCase() : existing.status;
+    const updatedUrl = website_url !== undefined ? website_url : existing.website_url;
+    const updatedDomain = guessed_domain !== undefined ? guessed_domain : existing.guessed_domain;
+    const updatedNotes = notes_evidence !== undefined ? notes_evidence : existing.notes_evidence;
+
+    db.prepare(`
+      UPDATE companies 
+      SET 
+        status = ?,
+        website_url = ?,
+        guessed_domain = ?,
+        notes_evidence = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE cin = ?
+    `).run(updatedStatus, updatedUrl, updatedDomain, updatedNotes, cin);
+
+    const updatedRecord = db.prepare('SELECT * FROM companies WHERE cin = ?').get(cin);
+    res.json({ success: true, message: 'Updated successfully', data: updatedRecord });
+  } catch (err) {
+    console.error('Error updating company:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// 5. POST /api/import - Re-sync from Excel file
+// ----------------------------------------------------
+app.post('/api/import', (req, res) => {
+  try {
+    const result = importData();
+    res.json({ success: true, message: `Seeded ${result.count} records`, count: result.count });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Serve frontend static build or public folder if present
+const publicDir = path.join(__dirname, 'public');
+app.use(express.static(publicDir));
+
+// Serve frontend fallback for SPA
+app.use((req, res) => {
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ success: false, error: 'Endpoint not found' });
+  }
+  res.sendFile(path.join(publicDir, 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Company Database & API Server running at http://localhost:${PORT}`);
+});

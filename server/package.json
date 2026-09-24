@@ -1,0 +1,15 @@
+{
+  "name": "company-database-server",
+  "version": "1.0.0",
+  "description": "Indian Corporate Database Backend with SQLite & Ingestion",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "import": "node import-data.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "xlsx": "^0.18.5"
+  }
+}
