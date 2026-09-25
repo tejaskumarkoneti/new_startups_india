@@ -373,10 +373,10 @@
         if (json.success) {
           renderTable(json.data, json.pagination);
         } else {
-          tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-rose-500">Error: ${json.error}</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-rose-500">Error: ${json.error}</td></tr>`;
         }
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-rose-500">Failed to load data. Is server running?</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-rose-500">Failed to load data. Is server running?</td></tr>`;
       }
     }
 
@@ -386,7 +386,7 @@
       if (companies.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="6" class="py-16 text-center text-slate-400 dark:text-slate-500">
+            <td colspan="5" class="py-16 text-center text-slate-400 dark:text-slate-500">
               <i data-lucide="folder-search" class="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600"></i>
               No companies match your filters.
             </td>
@@ -399,7 +399,8 @@
 
       tbody.innerHTML = companies.map(c => {
         const statusBadgeClass = `badge-${c.status}`;
-        const hasUrl = c.website_url && c.website_url.trim().length > 0;
+        const isConfirmed = String(c.status || '').toUpperCase() === 'CONFIRMED';
+        const showUrl = isConfirmed && c.website_url && c.website_url.trim().length > 0;
         const notes = c.notes_evidence || '';
 
         return `
@@ -408,12 +409,12 @@
             <td class="py-3 px-4 font-semibold text-slate-800 dark:text-slate-100">${escapeHtml(c.company_name)}</td>
             <td class="py-3 px-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">${c.date_of_registration || '—'}</td>
             <td class="py-3 px-4 text-xs">
-              ${hasUrl ? `
+              ${showUrl ? `
                 <a href="${escapeHtml(c.website_url)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium hover:underline max-w-[200px] truncate" title="${escapeHtml(c.website_url)}">
                   <span>${escapeHtml(c.website_url.replace(/^https?:\/\/(www\.)?/, ''))}</span>
                   <i data-lucide="external-link" class="w-3 h-3 shrink-0"></i>
                 </a>
-              ` : `<span class="text-slate-400 dark:text-slate-500 italic">No URL</span>`}
+              ` : `<span class="text-slate-400 dark:text-slate-500 italic">—</span>`}
             </td>
             <td class="py-3 px-4">
               <div class="flex items-center gap-1.5">
