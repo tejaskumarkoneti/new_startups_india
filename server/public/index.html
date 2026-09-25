@@ -125,15 +125,6 @@
         <!-- Filter Controls -->
         <div class="flex flex-wrap items-center gap-2">
 
-          <!-- Website Exists Filter -->
-          <div class="relative">
-            <select id="hasWebsiteSelect" class="text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 pr-8 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
-              <option value="">Any Website</option>
-              <option value="true">Has Website</option>
-              <option value="false">No Website</option>
-            </select>
-          </div>
-
           <!-- Sort Filter -->
           <div class="relative">
             <select id="sortSelect" class="text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 pr-8 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
@@ -256,7 +247,6 @@
       limit: 20,
       search: '',
       status: 'ALL',
-      hasWebsite: '',
       sortBy: 'company_name',
       order: 'asc',
       metrics: null
@@ -342,7 +332,6 @@
           limit: state.limit,
           search: state.search,
           status: state.status,
-          hasWebsite: state.hasWebsite,
           sortBy: state.sortBy,
           order: state.order
         });
@@ -520,12 +509,6 @@
       loadCompanies();
     });
 
-    document.getElementById('hasWebsiteSelect').addEventListener('change', (e) => {
-      state.hasWebsite = e.target.value;
-      state.page = 1;
-      loadCompanies();
-    });
-
     document.getElementById('sortSelect').addEventListener('change', (e) => {
       const [col, ord] = e.target.value.split(':');
       state.sortBy = col;
@@ -543,12 +526,10 @@
       state.page = 1;
       state.search = '';
       state.status = 'ALL';
-      state.hasWebsite = '';
       state.sortBy = 'company_name';
       state.order = 'asc';
       document.getElementById('searchInput').value = '';
       document.getElementById('clearSearchBtn').classList.add('hidden');
-      document.getElementById('hasWebsiteSelect').value = '';
       document.getElementById('sortSelect').value = 'company_name:asc';
       document.getElementById('limitSelect').value = '20';
       if (state.metrics) renderMetrics(state.metrics);
