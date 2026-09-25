@@ -20,14 +20,17 @@ app.use(express.json());
 async function bootstrap() {
   try {
     await initDatabase();
+    // Enforce that only CONFIRMED records exist
+    await execute("DELETE FROM companies WHERE status != 'CONFIRMED'");
+
     const countRow = await queryGet('SELECT COUNT(*) as total FROM companies');
     const total = countRow ? parseInt(countRow.total || 0) : 0;
     
     if (total === 0) {
-      console.log('Database empty. Running initial import from Excel...');
+      console.log('Database empty. Running initial import from Excel (CONFIRMED only)...');
       await importData();
     } else {
-      console.log(`📊 Database loaded with ${total} companies (${isPostgres ? 'PostgreSQL' : 'SQLite'}).`);
+      console.log(`📊 Database loaded with ${total} CONFIRMED companies (${isPostgres ? 'PostgreSQL' : 'SQLite'}).`);
     }
   } catch (err) {
     console.error('Error during database bootstrap:', err);
@@ -53,7 +56,7 @@ app.get('/api/companies', async (req, res) => {
       : 'company_name';
     const order = (req.query.order || 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
-    const conditions = [];
+    const conditions = ["status = 'CONFIRMED'"];
     const params = [];
 
     if (search) {
@@ -62,22 +65,13 @@ app.get('/api/companies', async (req, res) => {
       params.push(term, term, term);
     }
 
-    if (statusFilter && statusFilter !== 'ALL') {
-      const statuses = statusFilter.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-      if (statuses.length > 0) {
-        const placeholders = statuses.map(() => '?').join(',');
-        conditions.push(`status IN (${placeholders})`);
-        params.push(...statuses);
-      }
-    }
-
     if (hasWebsite === 'true') {
       conditions.push("(website_url IS NOT NULL AND TRIM(website_url) != '')");
     } else if (hasWebsite === 'false') {
       conditions.push("(website_url IS NULL OR TRIM(website_url) = '')");
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     // Count total matching records
     const countSql = `SELECT COUNT(*) as total FROM companies ${whereClause}`;
@@ -122,49 +116,26 @@ app.get('/api/companies', async (req, res) => {
 });
 
 // ----------------------------------------------------
-// 2. GET /api/metrics - Status breakdown and statistics
+// 2. GET /api/metrics - Confirmed status breakdown
 // ----------------------------------------------------
 app.get('/api/metrics', async (req, res) => {
   try {
-    const totalRow = await queryGet('SELECT COUNT(*) as total FROM companies');
+    const totalRow = await queryGet("SELECT COUNT(*) as total FROM companies WHERE status = 'CONFIRMED'");
     const total = totalRow ? parseInt(totalRow.total) : 0;
-
-    const statusRows = await queryAll(`
-      SELECT status, COUNT(*) as count 
-      FROM companies 
-      GROUP BY status
-    `);
 
     const withWebsiteRow = await queryGet(`
       SELECT COUNT(*) as count 
       FROM companies 
-      WHERE website_url IS NOT NULL AND TRIM(website_url) != ''
+      WHERE status = 'CONFIRMED' AND website_url IS NOT NULL AND TRIM(website_url) != ''
     `);
     const withWebsite = withWebsiteRow ? parseInt(withWebsiteRow.count) : 0;
-
-    const statusCounts = {
-      CONFIRMED: 0,
-      LIKELY: 0,
-      UNCERTAIN: 0,
-      NEEDS_MANUAL_CHECK: 0,
-      NOT_FOUND: 0
-    };
-
-    statusRows.forEach(r => {
-      const st = r.status.toUpperCase();
-      if (statusCounts[st] !== undefined) {
-        statusCounts[st] = parseInt(r.count);
-      }
-    });
 
     res.json({
       success: true,
       metrics: {
         total,
-        statusCounts,
         withWebsite,
-        verifiedCount: (statusCounts.CONFIRMED + statusCounts.LIKELY),
-        completionRate: total > 0 ? ((statusCounts.CONFIRMED + statusCounts.LIKELY + statusCounts.NOT_FOUND) / total * 100).toFixed(1) : 0
+        withoutWebsite: Math.max(0, total - withWebsite)
       }
     });
   } catch (err) {

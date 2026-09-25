@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
-const { isPostgres, pool, sqliteDb, initDatabase, queryAll } = require('./db');
+const { isPostgres, pool, sqliteDb, initDatabase, queryAll, execute } = require('./db');
 
 async function importData(customInput = null) {
   await initDatabase();
@@ -40,9 +40,18 @@ async function importData(customInput = null) {
 
   const sheetName = workbook.SheetNames.includes('Companies') ? 'Companies' : workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
-  const rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+  const allRows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
 
-  console.log(`📊 Processing ${rows.length} rows from ${sourceDescription}...`);
+  // STRICT FILTER: Only keep CONFIRMED companies!
+  const rows = allRows.filter(row => {
+    const status = String(row['Status'] || row['status'] || '').trim().toUpperCase();
+    return status === 'CONFIRMED';
+  });
+
+  console.log(`📊 Processing ${rows.length} CONFIRMED companies (skipped ${allRows.length - rows.length} non-confirmed rows) from ${sourceDescription}...`);
+
+  // Ensure any non-confirmed rows are deleted from the database
+  await execute("DELETE FROM companies WHERE status != 'CONFIRMED'");
 
   // Query existing CINs to count new vs updated
   const existingRows = await queryAll('SELECT cin FROM companies');
@@ -67,7 +76,7 @@ async function importData(customInput = null) {
           date_of_registration = EXCLUDED.date_of_registration,
           website_url = CASE WHEN EXCLUDED.website_url != '' THEN EXCLUDED.website_url ELSE companies.website_url END,
           guessed_domain = CASE WHEN EXCLUDED.guessed_domain != '' THEN EXCLUDED.guessed_domain ELSE companies.guessed_domain END,
-          status = CASE WHEN EXCLUDED.status != '' THEN EXCLUDED.status ELSE companies.status END,
+          status = 'CONFIRMED',
           notes_evidence = CASE WHEN EXCLUDED.notes_evidence != '' THEN EXCLUDED.notes_evidence ELSE companies.notes_evidence END,
           checked_on = EXCLUDED.checked_on,
           updated_at = CURRENT_TIMESTAMP;
@@ -81,7 +90,6 @@ async function importData(customInput = null) {
         const dateOfReg = String(row['Date Of Registration'] || row['date_of_registration'] || '').trim();
         const websiteUrl = String(row['Website URL'] || row['website_url'] || '').trim();
         const guessedDomain = String(row['Guessed Domain'] || row['guessed_domain'] || '').trim();
-        const rawStatus = String(row['Status'] || row['status'] || 'UNCERTAIN').trim().toUpperCase();
         const notesEvidence = String(row['Notes / Evidence'] || row['notes_evidence'] || '').trim();
         const checkedOn = String(row['Checked_On'] || row['checked_on'] || '').trim();
 
@@ -93,7 +101,7 @@ async function importData(customInput = null) {
         }
 
         await client.query(pgUpsertSql, [
-          cin, companyName, dateOfReg, websiteUrl, guessedDomain, rawStatus, notesEvidence, checkedOn
+          cin, companyName, dateOfReg, websiteUrl, guessedDomain, 'CONFIRMED', notesEvidence, checkedOn
         ]);
       }
       await client.query('COMMIT');
@@ -116,7 +124,7 @@ async function importData(customInput = null) {
         date_of_registration = excluded.date_of_registration,
         website_url = CASE WHEN excluded.website_url != '' THEN excluded.website_url ELSE companies.website_url END,
         guessed_domain = CASE WHEN excluded.guessed_domain != '' THEN excluded.guessed_domain ELSE companies.guessed_domain END,
-        status = CASE WHEN excluded.status != '' THEN excluded.status ELSE companies.status END,
+        status = 'CONFIRMED',
         notes_evidence = CASE WHEN excluded.notes_evidence != '' THEN excluded.notes_evidence ELSE companies.notes_evidence END,
         checked_on = excluded.checked_on,
         updated_at = CURRENT_TIMESTAMP
@@ -132,7 +140,6 @@ async function importData(customInput = null) {
         const dateOfReg = String(row['Date Of Registration'] || row['date_of_registration'] || '').trim();
         const websiteUrl = String(row['Website URL'] || row['website_url'] || '').trim();
         const guessedDomain = String(row['Guessed Domain'] || row['guessed_domain'] || '').trim();
-        const rawStatus = String(row['Status'] || row['status'] || 'UNCERTAIN').trim().toUpperCase();
         const notesEvidence = String(row['Notes / Evidence'] || row['notes_evidence'] || '').trim();
         const checkedOn = String(row['Checked_On'] || row['checked_on'] || '').trim();
 
@@ -144,7 +151,7 @@ async function importData(customInput = null) {
         }
 
         insertStmt.run(
-          cin, companyName, dateOfReg, websiteUrl, guessedDomain, rawStatus, notesEvidence, checkedOn
+          cin, companyName, dateOfReg, websiteUrl, guessedDomain, 'CONFIRMED', notesEvidence, checkedOn
         );
       }
       sqliteDb.exec('COMMIT;');
@@ -155,7 +162,7 @@ async function importData(customInput = null) {
   }
 
   const totalProcessed = newCount + updatedCount;
-  console.log(`✅ Ingestion complete: ${totalProcessed} total processed (${newCount} new, ${updatedCount} updated).`);
+  console.log(`✅ Ingestion complete: ${totalProcessed} CONFIRMED companies processed (${newCount} new, ${updatedCount} updated).`);
 
   return {
     success: true,

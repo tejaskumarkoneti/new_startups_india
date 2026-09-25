@@ -96,11 +96,8 @@
 
     <!-- 1. Top Metrics Cards -->
     <section>
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5" id="metricsContainer">
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" id="metricsContainer">
         <!-- Rendered dynamically -->
-        <div class="animate-pulse bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 h-24"></div>
-        <div class="animate-pulse bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 h-24"></div>
-        <div class="animate-pulse bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 h-24"></div>
         <div class="animate-pulse bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 h-24"></div>
         <div class="animate-pulse bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 h-24"></div>
         <div class="animate-pulse bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 h-24"></div>
@@ -127,17 +124,6 @@
 
         <!-- Filter Controls -->
         <div class="flex flex-wrap items-center gap-2">
-          <!-- Status Select -->
-          <div class="relative">
-            <select id="statusSelect" class="text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 pr-8 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
-              <option value="ALL">All Statuses</option>
-              <option value="CONFIRMED">CONFIRMED</option>
-              <option value="LIKELY">LIKELY</option>
-              <option value="NEEDS_MANUAL_CHECK">NEEDS MANUAL CHECK</option>
-              <option value="UNCERTAIN">UNCERTAIN</option>
-              <option value="NOT_FOUND">NOT FOUND</option>
-            </select>
-          </div>
 
           <!-- Website Exists Filter -->
           <div class="relative">
@@ -327,24 +313,18 @@
     function renderMetrics(m) {
       const container = document.getElementById('metricsContainer');
       const cards = [
-        { label: 'Total Companies', count: m.total, icon: 'database', bg: 'text-indigo-600 dark:text-indigo-400', filter: 'ALL' },
-        { label: 'Confirmed', count: m.statusCounts.CONFIRMED, icon: 'check-circle-2', bg: 'text-emerald-600 dark:text-emerald-400', filter: 'CONFIRMED' },
-        { label: 'Likely', count: m.statusCounts.LIKELY, icon: 'thumbs-up', bg: 'text-sky-600 dark:text-sky-400', filter: 'LIKELY' },
-        { label: 'Needs Check', count: m.statusCounts.NEEDS_MANUAL_CHECK, icon: 'alert-triangle', bg: 'text-amber-600 dark:text-amber-400', filter: 'NEEDS_MANUAL_CHECK' },
-        { label: 'Uncertain', count: m.statusCounts.UNCERTAIN, icon: 'help-circle', bg: 'text-purple-600 dark:text-purple-400', filter: 'UNCERTAIN' },
-        { label: 'Not Found', count: m.statusCounts.NOT_FOUND, icon: 'x-circle', bg: 'text-slate-500 dark:text-slate-400', filter: 'NOT_FOUND' },
+        { label: 'Confirmed Companies', count: m.total, icon: 'check-circle-2', bg: 'text-emerald-600 dark:text-emerald-400' },
+        { label: 'Verified Websites', count: m.withWebsite, icon: 'globe', bg: 'text-sky-600 dark:text-sky-400' },
+        { label: 'Verification Standard', count: '100% Exact', icon: 'shield-check', bg: 'text-indigo-600 dark:text-indigo-400', isText: true }
       ];
 
       container.innerHTML = cards.map(c => `
-        <div 
-          onclick="selectStatusFilter('${c.filter}')"
-          class="bg-white dark:bg-slate-900 p-3.5 rounded-xl border ${state.status === c.filter ? 'ring-2 ring-indigo-500 border-transparent shadow-sm' : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'} transition-all cursor-pointer shadow-2xs group"
-        >
-          <div class="flex items-center justify-between text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 mb-1">
-            <span class="text-[11px] font-medium tracking-tight text-slate-500 dark:text-slate-400">${c.label}</span>
+        <div class="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div class="flex items-center justify-between text-slate-400 dark:text-slate-500 mb-1.5">
+            <span class="text-xs font-medium tracking-tight text-slate-500 dark:text-slate-400">${c.label}</span>
             <i data-lucide="${c.icon}" class="w-4 h-4 ${c.bg}"></i>
           </div>
-          <div class="text-xl font-bold text-slate-900 dark:text-white">${c.count.toLocaleString()}</div>
+          <div class="text-2xl font-bold text-slate-900 dark:text-white">${c.isText ? c.count : c.count.toLocaleString()}</div>
         </div>
       `).join('');
 
@@ -510,14 +490,6 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function selectStatusFilter(status) {
-      state.status = status;
-      state.page = 1;
-      document.getElementById('statusSelect').value = status;
-      if (state.metrics) renderMetrics(state.metrics);
-      loadCompanies();
-    }
-
     // Toast message
     function showToast(msg) {
       const toast = document.getElementById('toast');
@@ -548,10 +520,6 @@
       loadCompanies();
     });
 
-    document.getElementById('statusSelect').addEventListener('change', (e) => {
-      selectStatusFilter(e.target.value);
-    });
-
     document.getElementById('hasWebsiteSelect').addEventListener('change', (e) => {
       state.hasWebsite = e.target.value;
       state.page = 1;
@@ -580,7 +548,6 @@
       state.order = 'asc';
       document.getElementById('searchInput').value = '';
       document.getElementById('clearSearchBtn').classList.add('hidden');
-      document.getElementById('statusSelect').value = 'ALL';
       document.getElementById('hasWebsiteSelect').value = '';
       document.getElementById('sortSelect').value = 'company_name:asc';
       document.getElementById('limitSelect').value = '20';
